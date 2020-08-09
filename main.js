@@ -62,48 +62,69 @@ async function main() {
   client.open(onConnect);
 }
 
+function disconnectEncoder() {
+  clearInterval(encoderHeartbeat);
+  clearInterval(encoderRetryTimer);
+  Encoder.disconnect();
+  var patch = {
+    encoderConnected: false,
+  };
+  // send the patch
+  globalTwin.properties.reported.update(patch, function (err) {
+    if (err) throw err;
+    console.log("Encoder :: state reported - encoderConnected ", patch.encoderConnected);
+  });
+}
+
 function connectEncoder() {
   encoderRetryTimer = setInterval(() => {
     encoderClient = Encoder.connect({
       address: encoderAddress,
       password: encoderPassword,
     })
-      .then(() => {
+      .then(async () => {
         console.log(`Encoder :: connected`);
         clearInterval(encoderRetryTimer);
         encoderHeartbeat = setInterval(() => { getStats() }, 5000);
-        var patch = {
-          encoderConnected: true,
-        };
-        // send the patch
-        globalTwin.properties.reported.update(patch, function (err) {
-          if (err) throw err;
-          console.log("Encoder :: state reported");
-        });
+        await stream('status').then((encoderStatus) => {
 
-        setScene(globalTwin.properties.desired.encoder.startupScene || Studio.config.encoder.startupScene).then((result) => {
-          console.log("Encoder :: ready -- ", globalTwin.properties.desired.encoder.startupScene, Studio.config.encoder.startupScene);
-        });
+          var patch = {
+            encoderStreaming: encoderStatus.streaming,
+            encoderRecording: encoderStatus.recording,
+            encoderConnected: true,
+          };
+          // send the patch
+          globalTwin.properties.reported.update(patch, function (err) {
+            if (err) throw err;
+            console.log("Encoder :: state reported - encoderConnected ", patch.encoderConnected);
+          });
+
+          setScene(globalTwin.properties.desired.encoder.startupScene || Studio.config.encoder.startupScene).then((result) => {
+            console.log("Encoder :: ready -- ", globalTwin.properties.desired.encoder.startupScene, Studio.config.encoder.startupScene);
+          });
+        })
       })
       .catch((error) => {
-        console.log("Encoder :: Connection error", error);
+        console.log("Encoder :: Connection error ", encoderAddress, error);
+        clearInterval(encoderRetryTimer);
+
         var patch = {
           encoderConnected: false,
         };
         // send the patch
         globalTwin.properties.reported.update(patch, function (err) {
           if (err) throw err;
-          console.log("Encoder :: state reported");
+          console.log("Encoder :: state reported - encoderConnected ", patch.encoderConnected);
         });
       });
-  }, 5000)
+  }, 3000)
 }
 
 function onConnect(err) {
   if (!!err) {
     console.error("Could not connect: " + err.message);
   } else {
-    console.log("Connected to device. Registering handlers for methods.");
+    console.log("STUDIO :: Connected to device. ");
     // create device twin
     client.getTwin(async function (err, twin) {
       if (err) {
@@ -258,17 +279,46 @@ function onConnect(err) {
 
         });
         // Twin Property Update Handlers
+
+        console.log("STUDIO :: Registering Twin Update Handlers ");
+
         twin.on("properties.desired.startupScene", async function (delta) {
-          console.log("Encoder :: startup scene change received - " + delta);
+          console.log("Twin :: Encoder :: startup scene change received - " + delta);
         });
 
         twin.on("properties.desired.encoder.stream.url", async function (delta) {
-          console.log("Encoder :: Stream URL changed", delta);
+          console.log("Twin :: Encoder :: Stream URL changed", delta);
           setStreamInfo(delta);
         });
         twin.on("properties.desired.encoder.stream.key", async function (delta) {
-          console.log("Encoder :: Stream Key changed", delta);
+          console.log("Twin :: Encoder :: Stream Key changed", delta);
           setStreamInfo(null, delta);
+        });
+        twin.on("properties.desired.encoder.address", async function (delta) {
+          console.log("Twin :: Encoder :: Encoder address changed ", delta, encoderAddress, encoderPassword);
+          encoderAddress =
+            process.env.ENCODER_ADDRESS || globalTwin.properties.desired.encoder.address || Studio.config.encoder.address;
+          encoderPassword =
+            process.env.ENCODER_PASSWORD || globalTwin.properties.desired.encoder.password || Studio.config.encoder.password;
+          if (encoderRetryTimer._idleTimeout < 0) {
+            console.log("Twin :: Encoder :: Connecting to new location")
+            disconnectEncoder()
+            connectEncoder();
+          }
+        });
+        twin.on("properties.desired.switcher.address", async function (delta) {
+          switcherAddress =
+            process.env.SWITCHER_ADDRESS || globalTwin.properties.desired.switcher.address || Studio.config.switcher.address;
+          switcher.connect(switcherAddress);
+
+          console.log("Twin :: Encoder :: Switcher address changed ", delta, switcherAddress);
+        });
+        twin.on("properties.desired.player.address", async function (delta) {
+          playerAddress =
+            process.env.PLAYER_ADDRESS || globalTwin.properties.desired.player.address || Studio.config.player.address;
+          // Hyperdeck has "connectionLost" event, just setting new connection. 
+          console.log("Twin :: Encoder :: Player address changed ", delta, playerAddress);
+
         });
         twin.on("properties.desired.switcher.currentProgram", async function (delta) {
           await setInput(
@@ -277,7 +327,7 @@ function onConnect(err) {
             delta,
             globalTwin
           );
-          console.log("Encoder :: currentProgram changed", delta);
+          console.log("Twin :: Encoder :: currentProgram changed", delta);
 
         });
         twin.on("properties.desired.switcher.currentPreview", async function (delta) {
@@ -287,7 +337,7 @@ function onConnect(err) {
             delta,
             globalTwin
           );
-          console.log("Encoder :: currentPreview changed", delta);
+          console.log("Twin :: Encoder :: currentPreview changed", delta);
 
         });
       }
@@ -297,6 +347,10 @@ function onConnect(err) {
     // register handlers for all the method names we are interested in
     //
     //
+
+    console.log("STUDIO :: Registering Device Method Handlers ");
+
+
     // Studio Handlers
     client.onDeviceMethod("studioReady", onStudioReady);
 
@@ -437,7 +491,7 @@ async function onGetScenes(request, response) {
 
 async function onSlotInfo(request, response) {
   var slotInfos = { slot: [] }
-  console.log(await slotInfo());
+  console.log("PLAYER :: fetching slot info")
   await hyperdeckClient.makeRequest("slot info: slot id: 1").then(async function (slotInfo) {
     console.log(
       "Player :: Get slot 1 info "
@@ -586,7 +640,7 @@ async function onStreamStatus(request, response) {
       "Encoder :: Changing stream status to ",
       request.payload.status
     );
-    stream(request.payload.status);
+    await stream(request.payload.status);
   }
   response.send(200, request.payload, function (err) {
     if (err) {
@@ -601,61 +655,146 @@ async function onStreamStatus(request, response) {
   });
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 async function onStartStream(request, response) {
   console.debug(request);
   if (request.payload) {
-    var streamResult = await stream('start')
-    response.send(200, streamResult, function (err) {
-      if (err) {
-        console.error(
-          "An error ocurred when sending a method response:\n" + err.toString()
-        );
-      } else {
-        console.log(
-          "Response to method '" + request.methodName + "' sent successfully."
-        );
-        var patch = {
-          encoderStreaming: true,
-        };
+    await stream('start').then(async (streamResult) => {
+      await sleep(5000);
+      await stream('status').then((streamStatus) => {
+        console.log("encoder :: streaming retrieved ", streamStatus)
+        if (streamStatus.streaming) {
+          response.send(200, streamResult, function (err) {
+            if (err) {
+              console.error(
+                "An error ocurred when sending a method response:\n" + err.toString()
+              );
+            } else {
+              console.log(
+                "Response to method '" + request.methodName + "' sent successfully."
+              );
+              var patch = {
+                encoderStreaming: true,
+              };
 
-        // send the patch
-        globalTwin.properties.reported.update(patch, function (err) {
-          if (!!err) throw err;
-          console.log("ENCODER :: Stream started");
-        });
-      }
-    });
+              // send the patch
+              globalTwin.properties.reported.update(patch, function (err) {
+                if (!!err) throw err;
+                console.log("ENCODER :: Stream started");
+              });
+            }
+          });
+        } else {
+          response.send(503, streamStatus, function (err) {
+            if (err) {
+              console.error(
+                "An error ocurred when sending a method response:\n" + err.toString()
+              );
+            } else {
+              console.log(
+                "Response to method '" + request.methodName + "' sent successfully."
+              );
+              var patch = {
+                encoderStreaming: false,
+              };
+
+              // send the patch
+              globalTwin.properties.reported.update(patch, function (err) {
+                if (!!err) throw err;
+                console.log("ENCODER :: Stream stopped");
+              });
+            }
+          })
+        }
+
+      })
+    }).catch((err) => {
+      response.send(503, err, function (err) {
+        if (err) {
+          console.error(
+            "An error ocurred when sending a method response:\n" + err.toString()
+          );
+        } else {
+          console.log(
+            "Response to method '" + request.methodName + "' sent successfully."
+          );
+        }
+      })
+    })
   } else {
-    console.log("ENCODER :: armeters missing (startStream)");
+    console.log("ENCODER :: Parmeters missing (startStream)");
   }
 }
 
 async function onStopStream(request, response) {
-  console.debug(request);
   if (request.payload) {
-    var streamResult = await stream('stop');
-    response.send(200, streamResult, function (err) {
-      if (err) {
-        console.error(
-          "An error ocurred when sending a method response:\n" + err.toString()
-        );
-      } else {
-        console.log(
-          "Response to method '" + request.methodName + "' sent successfully."
-        );
-        var patch = {
-          encoderStreaming: false,
-        };
+    await stream('stop').then(async (streamResult) => {
+      await sleep(5000);
+      await stream('status').then((streamStatus) => {
+        if (!streamStatus.streaming) {
+          response.send(200, streamStatus, function (err) {
+            if (err) {
+              console.error(
+                "An error ocurred when sending a method response:\n" + err.toString()
+              );
 
-        // send the patch
-        globalTwin.properties.reported.update(patch, function (err) {
-          if (!!err) throw err;
-          console.log("ENCODER :: Stream stopped");
-        });
-      }
-    });
+            } else {
+              console.log(
+                "Response to method '" + request.methodName + "' sent successfully."
+              );
+              var patch = {
+                encoderStreaming: false,
+              };
+
+              // send the patch
+              globalTwin.properties.reported.update(patch, function (err) {
+                if (!!err) throw err;
+                console.log("ENCODER :: Stream stopped");
+              });
+            }
+          });
+        } else {
+          response.send(503, streamStatus, function (err) {
+            if (err) {
+              console.error(
+                "An error ocurred when sending a method response:\n" + err.toString()
+              );
+            } else {
+              console.log(
+                "Response to method '" + request.methodName + "' sent successfully."
+              ); var patch = {
+                encoderStreaming: true,
+              };
+
+              // send the patch
+              globalTwin.properties.reported.update(patch, function (err) {
+                if (!!err) throw err;
+                console.log("ENCODER :: Stream stopped");
+              });
+            }
+          })
+        }
+      })
+    }).catch(err => {
+      response.send(503, err, function (err) {
+        if (err) {
+          console.error(
+            "An error ocurred when sending a method response:\n" + err.toString()
+          );
+        } else {
+          console.log(
+            "Response to method '" + request.methodName + "' sent successfully."
+          );
+        }
+      })
+    })
   } else {
-    console.log("ENCODER :: parmeters missing (stopStream)");
+    console.log("ENCODER :: Parmeters missing (startStream)");
   }
 }
 
@@ -827,15 +966,21 @@ async function setStreamInfo(inUrl = null, inKey = null) {
   });
 }
 
+
+
 async function stream(inCommand) {
   switch (inCommand) {
     case "start":
       console.log("ENCODER :: Starting Stream");
-      return await Encoder.send("StartStreaming", {});
+      return Encoder.send("StartStreaming", {});
       break;
     case "stop":
       console.log("ENCODER :: Stopping Stream");
-      return await Encoder.send("StopStreaming", {});
+      return Encoder.send("StopStreaming", {});
+      break;
+    case "status":
+      console.log("ENCODER :: Streaming status");
+      return Encoder.send("GetStreamingStatus", {});
       break;
   }
 }
