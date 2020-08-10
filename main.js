@@ -15,7 +15,7 @@ const Protocol = require("azure-iot-device-mqtt").Mqtt;
 
 //  Studio Device - IoT Hub
 //
-const Client = require("azure-iot-device").Client;
+const IotDeviceClient = require("azure-iot-device").Client;
 const Message = require("azure-iot-device").Message;
 
 // Encoder Device
@@ -25,8 +25,12 @@ const Encoder = new OBSWebSocket();
 
 // Switcher Device
 //
-const { Atem } = require("atem-connection");
-const switcher = new Atem({ externalLog: console.log });
+const {
+  Atem
+} = require("atem-connection");
+const switcher = new Atem({
+  externalLog: console.log
+});
 
 // Player Device
 //
@@ -45,92 +49,35 @@ var playerRetryTimer = '';
 //  "HostName=<iothub_host_name>;DeviceId=<device_id>;SharedAccessKey=<device_key>"
 const deviceConnectionString =
   Studio.config.deviceConnectionString || process.env.DEVICE_CONNECTION_STRING;
-console.log(deviceConnectionString)
-var encoderAddress = ""
+var encoderAddress = "";
+var encoderPreviousAddress = "";
 var encoderPassword = "";
 var switcherAddress = "";
 var playerAddress = "";
 
 let sendInterval;
 
-var client = null;
+var studioClient = null;
 var globalTwin = null;
 
-async function main() {
-  // open a connection to the device
-  client = Client.fromConnectionString(deviceConnectionString, Protocol);
-  client.open(onConnect);
+function main() {
+  // open  connection to IoT Hub
+  studioClient = IotDeviceClient.fromConnectionString(deviceConnectionString, Protocol);
+  studioClient.open(onConnect);
 }
 
-function disconnectEncoder() {
-  clearInterval(encoderHeartbeat);
-  clearInterval(encoderRetryTimer);
-  Encoder.disconnect();
-  var patch = {
-    encoderConnected: false,
-  };
-  // send the patch
-  globalTwin.properties.reported.update(patch, function (err) {
-    if (err) throw err;
-    console.log("Encoder :: state reported - encoderConnected ", patch.encoderConnected);
-  });
-}
-
-function connectEncoder() {
-  encoderRetryTimer = setInterval(() => {
-    encoderClient = Encoder.connect({
-      address: encoderAddress,
-      password: encoderPassword,
-    })
-      .then(async () => {
-        console.log(`Encoder :: connected`);
-        clearInterval(encoderRetryTimer);
-        encoderHeartbeat = setInterval(() => { getStats() }, 5000);
-        await stream('status').then((encoderStatus) => {
-
-          var patch = {
-            encoderStreaming: encoderStatus.streaming,
-            encoderRecording: encoderStatus.recording,
-            encoderConnected: true,
-          };
-          // send the patch
-          globalTwin.properties.reported.update(patch, function (err) {
-            if (err) throw err;
-            console.log("Encoder :: state reported - encoderConnected ", patch.encoderConnected);
-          });
-
-          setScene(globalTwin.properties.desired.encoder.startupScene || Studio.config.encoder.startupScene).then((result) => {
-            console.log("Encoder :: ready -- ", globalTwin.properties.desired.encoder.startupScene, Studio.config.encoder.startupScene);
-          });
-        })
-      })
-      .catch((error) => {
-        console.log("Encoder :: Connection error ", encoderAddress, error);
-        clearInterval(encoderRetryTimer);
-
-        var patch = {
-          encoderConnected: false,
-        };
-        // send the patch
-        globalTwin.properties.reported.update(patch, function (err) {
-          if (err) throw err;
-          console.log("Encoder :: state reported - encoderConnected ", patch.encoderConnected);
-        });
-      });
-  }, 3000)
-}
-
+// when connected ...
 function onConnect(err) {
-  if (!!err) {
-    console.error("Could not connect: " + err.message);
+  if (err) {
+    console.error("STUDIO :: Could not connect " + err.message);
   } else {
-    console.log("STUDIO :: Connected to device. ");
+    console.log("STUDIO :: Connected to Hub. ");
     // create device twin
-    client.getTwin(async function (err, twin) {
+    studioClient.getTwin(function (err, twin) {
       if (err) {
-        console.error("could not get twin");
+        console.error("STUDIO :: could not synchronize twin");
       } else {
-        console.log("STUDIO :: twin created");
+        console.log("STUDIO :: Twin synchronized");
 
         globalTwin = twin;
 
@@ -157,221 +104,344 @@ function onConnect(err) {
           console.log("STUDIO :: Initial state reported");
         });
 
+        // SWITCHER
+
+        connectSwitcher();
+
         // ENCODER
 
         connectEncoder();
 
-        // SWITCHER
-
-        console.log("SWITCHER :: Address " + switcherAddress);
-        switcher.connect(switcherAddress);
-
-        switcher.on("disconnected", () => {
-          console.log("SWITCHER :: disconnected");
-          var patch = {
-            switcherConnected: false,
-          };
-
-          // send the patch
-          globalTwin.properties.reported.update(patch, function (err) {
-            if (err) throw err;
-            console.log("SWITCHER :: state reported");
-          });
-        });
-
-        switcher.on("connected", () => {
-          var patch = {}
-          if (!switcherReconnect) {
-            console.log("SWITCHER :: connected");
-
-            // set switcher to bars as initial input
-            setInput(
-              switcher,
-              "program",
-              globalTwin.properties.desired.switcher.startupProgram,
-              globalTwin
-            );
-            globalTwin.properties.desired.switcher.currentProgram = null;
-            setInput(
-              switcher,
-              "preview",
-              globalTwin.properties.desired.switcher.startupPreview,
-              globalTwin
-            );
-            globalTwin.properties.desired.switcher.currentPreview = null;
-
-            console.log("SWITCHER :: startup inputs set", globalTwin.properties.desired.switcher.startupPreview, globalTwin.properties.desired.switcher.startupProgram)
-
-            patch = {
-              switcherConnected: true,
-              switcherProgram: 1000,
-              switcherPreview: 1000,
-            };
-
-            switcherReconnect = true;
-
-          } else {
-            console.log("SWITCHER :: connection restablished");
-
-            patch = {
-              switcherConnected: true,
-            };
-          }
-          // send the patch
-          globalTwin.properties.reported.update(patch, function (err) {
-            if (err) throw err;
-            console.log("SWITCHER :: state reported");
-          });
-          // console.log(myAtem.state.inputs);
-        });
-
         // PLAYER
-        hyperdeckClient = await new hyperdeck.Hyperdeck(
-          Studio.config.player.address
-        );
+        connectPlayer();
 
-        await hyperdeckClient.onConnected().then(async function () {
-          console.log("PLAYER :: connected");
+        //
+        //
+        // register handlers for all the method names we are interested in
+        //
+        //
 
-          hyperdeckClient.getNotifier().on("connectionLost", async function () {
-            console.error("PLAYER :: Connection lost.");
+        console.log("STUDIO :: Registering Device Method Handlers ");
+
+        // Studio Handlers
+        studioClient.onDeviceMethod("studioReady", onStudioReady);
+      }
+    });
+  }
+}
+
+/* 
+ ****************************************************************
+ ***
+ *** STUDIO EQUIPMENT FUNCTIONALITY
+ ***
+ */
+
+
+/*
+...
+... ENCODER
+...
+*/
+
+function connectEncoder() {
+  var patch = {
+    encoderStreaming: false,
+    encoderRecording: false,
+  };
+
+  // send the patch for encoder delta initial state
+  globalTwin.properties.reported.update(patch, function (err) {
+    if (err) throw err;
+    console.log("Encoder :: initial state reported - encoder connecting ... ", patch.encoderConnected);
+  });
+
+  // Encoder Twin Registrations
+  console.log("STUDIO :: Registering Twin Update Handlers for Encoder");
+
+  globalTwin.on("properties.desired.encoder.startupScene", async function (delta) {
+    console.log("Twin :: Encoder :: startup scene change received - " + delta);
+  });
+  globalTwin.on("properties.desired.encoder.stream.url", async function (delta) {
+    console.log("Twin :: Encoder :: Stream URL changed", delta);
+    setStreamInfo(delta);
+  });
+  globalTwin.on("properties.desired.encoder.stream.key", async function (delta) {
+    console.log("Twin :: Encoder :: Stream Key changed", delta);
+    setStreamInfo(null, delta);
+  });
+  globalTwin.on("properties.desired.encoder.address", async function (delta) {
+    console.log("Twin :: Encoder :: Encoder address changed ", delta, encoderAddress, encoderPassword);
+    if (encoderPreviousAddress != encoderAddress) {
+      encoderPreviousAddress = encoderAddress;
+      encoderAddress =
+        process.env.ENCODER_ADDRESS || globalTwin.properties.desired.encoder.address || Studio.config.encoder.address;
+      encoderPassword =
+        process.env.ENCODER_PASSWORD || globalTwin.properties.desired.encoder.password || Studio.config.encoder.password;
+      if (encoderRetryTimer._idleTimeout < 0) {
+        console.log("Twin :: Encoder :: Connecting to new location")
+        disconnectEncoder()
+        connectEncoder();
+      }
+    } else {
+      console.log("Twin :: Encoder :: no change in address")
+    }
+  });
+
+  // Encoder Handlers
+  console.log("STUDIO :: Registering Device Method Handlers for Encoder");
+
+  studioClient.onDeviceMethod("getScenes", onGetScenes);
+  studioClient.onDeviceMethod("setScene", onSetScene);
+  studioClient.onDeviceMethod("streamStatus", onStreamStatus);
+  studioClient.onDeviceMethod("startStream", onStartStream);
+  studioClient.onDeviceMethod("stopStream", onStopStream);
+
+  encoderRetryTimer = setInterval(() => {
+    console.log(`Encoder :: Connection attempt`);
+    encoderClient = Encoder.connect({
+        address: encoderAddress,
+        password: encoderPassword,
+      })
+      .then(async () => {
+        console.log(`Encoder :: connected`);
+        clearInterval(encoderRetryTimer);
+
+        encoderHeartbeat = setInterval(() => {
+          getStats()
+        }, 5000);
+        var patch = {
+          encoderConnected: true,
+        };
+        // send the patch
+        globalTwin.properties.reported.update(patch, function (err) {
+          if (err) throw err;
+          console.log("Encoder :: state reported - encoderConnected ", patch.encoderConnected);
+        });
+        await stream('status')
+          .then((encoderStatus) => {
             var patch = {
-              playerConnected: false,
+              encoderStreaming: encoderStatus.streaming,
+              encoderRecording: encoderStatus.recording,
+              encoderConnected: true,
             };
-
             // send the patch
             globalTwin.properties.reported.update(patch, function (err) {
               if (err) throw err;
-              console.log("PLAYER :: state reported");
+              console.log("Encoder :: state reported - encoderConnected ", patch.encoderConnected);
             });
 
-            hyperdeckClient = new hyperdeck.Hyperdeck(
-              Studio.config.player.address
-            );
-          });
-
-          await getClips()
-            .then((hyperdeckClips) => {
-              Player.clips = hyperdeckClips;
-              console.log("PLAYER :: Clips ", Player.clips);
-            })
-            .catch((error) => {
-              console.log("PLAYER :: no clips or disk ", error);
+            setScene(globalTwin.properties.desired.encoder.startupScene || Studio.config.encoder.startupScene).then((result) => {
+              console.log("Encoder :: ready -- ", globalTwin.properties.desired.encoder.startupScene, Studio.config.encoder.startupScene);
             });
+          })
+      })
+      .catch((error) => {
+        console.log("Encoder :: Connection error ", encoderAddress, error);
+        clearInterval(encoderRetryTimer);
 
-          var patch = {
-            playerConnected: true,
-          };
-
-          // send the patch
-          globalTwin.properties.reported.update(patch, function (err) {
-            if (err) throw err;
-            console.log("PLAYER :: state reported");
-          });
-
-          // playerRetryTimer = setInterval(async function () {
-          //   await getClips()
-          //     .then((hyperdeckClips) => {
-          //       Player.clips = hyperdeckClips;
-          //       console.log("PLAYER :: Clips ", Player.clips);
-          //     }).catch(error => { console.log(error) })
-          // }, 3000)
-
+        var patch = {
+          encoderConnected: false,
+        };
+        // send the patch
+        globalTwin.properties.reported.update(patch, function (err) {
+          if (err) throw err;
+          console.log("Encoder :: state reported - encoderConnected ", patch.encoderConnected);
         });
-        // Twin Property Update Handlers
+      });
+  }, 10000)
+}
 
-        console.log("STUDIO :: Registering Twin Update Handlers ");
+function disconnectEncoder() {
+  clearInterval(encoderHeartbeat);
+  clearInterval(encoderRetryTimer);
+  Encoder.disconnect();
+  var patch = {
+    encoderConnected: false,
+  };
+  // send the patch
+  globalTwin.properties.reported.update(patch, function (err) {
+    if (err) throw err;
+    console.log("Encoder :: state reported - encoderConnected ", patch.encoderConnected);
+  });
+}
 
-        twin.on("properties.desired.startupScene", async function (delta) {
-          console.log("Twin :: Encoder :: startup scene change received - " + delta);
-        });
+/*
+...
+... SWITCHER
+...
+*/
 
-        twin.on("properties.desired.encoder.stream.url", async function (delta) {
-          console.log("Twin :: Encoder :: Stream URL changed", delta);
-          setStreamInfo(delta);
-        });
-        twin.on("properties.desired.encoder.stream.key", async function (delta) {
-          console.log("Twin :: Encoder :: Stream Key changed", delta);
-          setStreamInfo(null, delta);
-        });
-        twin.on("properties.desired.encoder.address", async function (delta) {
-          console.log("Twin :: Encoder :: Encoder address changed ", delta, encoderAddress, encoderPassword);
-          encoderAddress =
-            process.env.ENCODER_ADDRESS || globalTwin.properties.desired.encoder.address || Studio.config.encoder.address;
-          encoderPassword =
-            process.env.ENCODER_PASSWORD || globalTwin.properties.desired.encoder.password || Studio.config.encoder.password;
-          if (encoderRetryTimer._idleTimeout < 0) {
-            console.log("Twin :: Encoder :: Connecting to new location")
-            disconnectEncoder()
-            connectEncoder();
-          }
-        });
-        twin.on("properties.desired.switcher.address", async function (delta) {
-          switcherAddress =
-            process.env.SWITCHER_ADDRESS || globalTwin.properties.desired.switcher.address || Studio.config.switcher.address;
-          switcher.connect(switcherAddress);
+function connectSwitcher() {
 
-          console.log("Twin :: Encoder :: Switcher address changed ", delta, switcherAddress);
-        });
-        twin.on("properties.desired.player.address", async function (delta) {
-          playerAddress =
-            process.env.PLAYER_ADDRESS || globalTwin.properties.desired.player.address || Studio.config.player.address;
-          // Hyperdeck has "connectionLost" event, just setting new connection. 
-          console.log("Twin :: Encoder :: Player address changed ", delta, playerAddress);
+  console.log("SWITCHER :: Address " + switcherAddress);
+  switcher.connect(switcherAddress);
 
-        });
-        twin.on("properties.desired.switcher.currentProgram", async function (delta) {
-          await setInput(
-            switcher,
-            "program",
-            delta,
-            globalTwin
-          );
-          console.log("Twin :: Encoder :: currentProgram changed", delta);
+  // Switcher Handlers
+  try {
+    studioClient.onDeviceMethod("doTransition", onTransition)
+  } catch (err) {
+    console.log("Device Method handler already registered")
+  }
+  // Switcher Twin Registrations
+  console.log("STUDIO :: Registering Twin Update Handlers for Switcher");
+  globalTwin.on("properties.desired.switcher.address", async function (delta) {
+    switcherAddress =
+      process.env.SWITCHER_ADDRESS || globalTwin.properties.desired.switcher.address || Studio.config.switcher.address;
+    switcher.connect(switcherAddress);
 
-        });
-        twin.on("properties.desired.switcher.currentPreview", async function (delta) {
-          await setInput(
-            switcher,
-            "preview",
-            delta,
-            globalTwin
-          );
-          console.log("Twin :: Encoder :: currentPreview changed", delta);
+    console.log("Twin :: Encoder :: Switcher address changed ", delta, switcherAddress);
+  })
+  globalTwin.on("properties.desired.switcher.currentProgram", async function (delta) {
+    await setInput(
+      switcher,
+      "program",
+      delta,
+      globalTwin
+    );
+    console.log("Twin :: Encoder :: currentProgram changed", delta);
+  });
+  globalTwin.on("properties.desired.switcher.currentPreview", async function (delta) {
+    await setInput(
+      switcher,
+      "preview",
+      delta,
+      globalTwin
+    );
+    console.log("Twin :: Encoder :: currentPreview changed", delta);
+  });
+}
 
-        });
-      }
+switcher.on("disconnected", () => {
+  console.log("SWITCHER :: disconnected");
+  var patch = {
+    switcherConnected: false,
+  };
+
+  // send the patch
+  globalTwin.properties.reported.update(patch, function (err) {
+    if (err) throw err;
+    console.log("SWITCHER :: state reported");
+  });
+});
+
+switcher.on("connected", () => {
+  var patch = {}
+  if (!switcherReconnect) {
+    console.log("SWITCHER :: connected");
+
+    // set switcher to bars as initial input
+    setInput(
+      switcher,
+      "program",
+      globalTwin.properties.desired.switcher.startupProgram,
+      globalTwin
+    );
+    globalTwin.properties.desired.switcher.currentProgram = null;
+    setInput(
+      switcher,
+      "preview",
+      globalTwin.properties.desired.switcher.startupPreview,
+      globalTwin
+    );
+    globalTwin.properties.desired.switcher.currentPreview = null;
+
+    console.log("SWITCHER :: startup inputs set", globalTwin.properties.desired.switcher.startupPreview, globalTwin.properties.desired.switcher.startupProgram)
+
+    patch = {
+      switcherConnected: true,
+      switcherProgram: 1000,
+      switcherPreview: 1000,
+    };
+
+    switcherReconnect = true;
+
+  } else {
+    console.log("SWITCHER :: connection restablished");
+
+    patch = {
+      switcherConnected: true,
+    };
+  }
+
+  // send the patch
+  globalTwin.properties.reported.update(patch, function (err) {
+    if (err) throw err;
+    console.log("SWITCHER :: state reported");
+  });
+  // console.log(myAtem.state.inputs);
+});
+
+
+/*
+...
+... PLAYER
+...
+*/
+
+
+function connectPlayer() {
+
+  hyperdeckClient = new hyperdeck.Hyperdeck(
+    Studio.config.player.address
+  );
+
+  hyperdeckClient.onConnected().then(async function () {
+    console.log("PLAYER :: connected");
+
+    hyperdeckClient.getNotifier().on("connectionLost", async function () {
+      console.error("PLAYER :: Connection lost.");
+      var patch = {
+        playerConnected: false,
+      };
+
+      // send the patch
+      globalTwin.properties.reported.update(patch, function (err) {
+        if (err) throw err;
+        console.log("PLAYER :: state reported");
+      });
+
+      hyperdeckClient = new hyperdeck.Hyperdeck(
+        Studio.config.player.address
+      );
     });
-    //
-    //
-    // register handlers for all the method names we are interested in
-    //
-    //
 
-    console.log("STUDIO :: Registering Device Method Handlers ");
+    await getClips()
+      .then((hyperdeckClips) => {
+        Player.clips = hyperdeckClips;
+        console.log("PLAYER :: Clips ", Player.clips);
+      })
+      .catch((error) => {
+        console.log("PLAYER :: no clips or disk ", error);
+      });
 
+    var patch = {
+      playerConnected: true,
+    };
 
-    // Studio Handlers
-    client.onDeviceMethod("studioReady", onStudioReady);
 
     // Player Handlers
-    client.onDeviceMethod("playClip", onPlayClip);
-    client.onDeviceMethod("stop", onStop);
-    client.onDeviceMethod("listClips", onListClips);
+    studioClient.onDeviceMethod("playClip", onPlayClip);
+    studioClient.onDeviceMethod("stop", onStop);
+    studioClient.onDeviceMethod("listClips", onListClips);
 
-    client.onDeviceMethod("slotInfo", onSlotInfo);
+    studioClient.onDeviceMethod("slotInfo", onSlotInfo);
+    // Encoder Twin Registrations
+    console.log("STUDIO :: Registering Twin Update Handlers for Player");
+    globalTwin.on("properties.desired.player.address", async function (delta) {
+      playerAddress =
+        process.env.PLAYER_ADDRESS || globalTwin.properties.desired.player.address || Studio.config.player.address;
+      // Hyperdeck has "connectionLost" event, just setting new connection. 
+      console.log("Twin :: Player address changed ", delta, playerAddress);
+    });
 
-    // Switcher Handlers
-    client.onDeviceMethod("doTransition", onTransition)
+    // send the patch
+    globalTwin.properties.reported.update(patch, function (err) {
+      if (err) throw err;
+      console.log("PLAYER :: state reported");
+    });
 
-    // Encoder Handlers
-    client.onDeviceMethod("getScenes", onGetScenes);
-    client.onDeviceMethod("setScene", onSetScene);
-    client.onDeviceMethod("streamStatus", onStreamStatus);
-    client.onDeviceMethod("startStream", onStartStream);
-    client.onDeviceMethod("stopStream", onStopStream);
-
-  }
+  });
 }
 
 /*
@@ -458,7 +528,9 @@ async function onSetScene(request, response) {
 }
 
 async function onGetScenes(request, response) {
-  var slotInfos = { slot: [] }
+  var slotInfos = {
+    slot: []
+  }
   if (globalTwin.properties.reported.encoderConnected) {
     getSceneList().then((studioSetup) => {
       // complete the response
@@ -490,7 +562,9 @@ async function onGetScenes(request, response) {
 }
 
 async function onSlotInfo(request, response) {
-  var slotInfos = { slot: [] }
+  var slotInfos = {
+    slot: []
+  }
   console.log("PLAYER :: fetching slot info")
   await hyperdeckClient.makeRequest("slot info: slot id: 1").then(async function (slotInfo) {
     console.log(
@@ -525,7 +599,8 @@ async function onPlayClip(request, response) {
     play(request.payload.clip, request.payload.loop || false);
     response.send(200, {
       player: {
-        status: "stop", playing: Player.clips[request.payload.clip - 1]
+        status: "stop",
+        playing: Player.clips[request.payload.clip - 1]
       }
     }, function (err) {
       if (err) {
@@ -549,7 +624,12 @@ async function onStop(request, response) {
       "Player :: Stop playback "
     );
 
-    response.send(200, { player: { status: "stop", playing: "" } }, function (err) {
+    response.send(200, {
+      player: {
+        status: "stop",
+        playing: ""
+      }
+    }, function (err) {
       if (err) {
         console.error(
           "An error ocurred when sending a method response:\n" + err.toString()
@@ -562,7 +642,9 @@ async function onStop(request, response) {
     });
   }).catch(err => {
     if (err.code = 107)
-      response.send(503, { err }, function (err) {
+      response.send(503, {
+        err
+      }, function (err) {
         if (err) {
           console.error(
             "An error ocurred when sending a method response:\n" + err.toString()
@@ -585,7 +667,9 @@ async function onListClips(request, response) {
       JSON.stringify(clips)
     );
 
-    response.send(200, { clips }, function (err) {
+    response.send(200, {
+      clips
+    }, function (err) {
       if (err) {
         console.error(
           "An error ocurred when sending a method response:\n" + err.toString()
@@ -598,7 +682,9 @@ async function onListClips(request, response) {
     });
   }).catch(err => {
     if (err.code = 107)
-      response.send(404, { err }, function (err) {
+      response.send(404, {
+        err
+      }, function (err) {
         if (err) {
           console.error(
             "An error ocurred when sending a method response:\n" + err.toString()
@@ -767,7 +853,8 @@ async function onStopStream(request, response) {
             } else {
               console.log(
                 "Response to method '" + request.methodName + "' sent successfully."
-              ); var patch = {
+              );
+              var patch = {
                 encoderStreaming: true,
               };
 
@@ -813,8 +900,7 @@ switcher.on("stateChanged", async function (err, state) {
   //   switcher.listVisibleInputs("preview")[0]
   // );
   console.log("SWITCHER :: State received ", state)
-  var patch = {
-  };
+  var patch = {};
 
   switch (state) {
     case "video.ME.0.previewInput": {
@@ -854,7 +940,7 @@ async function setInput(inSwitcher, inChannel, inInput, inTwin) {
           });
         })
         .catch((error) => {
-          console.log("SWITCHER :: Error", error);
+          console.log("SWITCHER :: Error ", error);
         });
       break;
     case "preview":
@@ -872,7 +958,7 @@ async function setInput(inSwitcher, inChannel, inInput, inTwin) {
           });
         })
         .catch((error) => {
-          console.log("SWITCHER :: Error", error);
+          console.log("SWITCHER :: Error ", error);
         });
       break;
     default:
@@ -953,7 +1039,9 @@ async function getStats() {
   })
 }
 async function setStreamInfo(inUrl = null, inKey = null) {
-  var settings = { settings: {} };
+  var settings = {
+    settings: {}
+  };
   if (inUrl) {
     settings.settings["server"] = inUrl;
   }
