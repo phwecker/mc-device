@@ -145,16 +145,6 @@ function onConnect(err) {
 */
 
 function connectEncoder() {
-  var patch = {
-    encoderStreaming: false,
-    encoderRecording: false,
-  };
-
-  // send the patch for encoder delta initial state
-  globalTwin.properties.reported.update(patch, function (err) {
-    if (err) throw err;
-    console.log("Encoder :: initial state reported - encoder connecting ... ", patch.encoderConnected);
-  });
 
   // Encoder Twin Registrations
   console.log("STUDIO :: Registering Twin Update Handlers for Encoder");
@@ -183,6 +173,10 @@ function connectEncoder() {
         disconnectEncoder()
         connectEncoder();
       }
+    } else if (!globalTwin.properties.reported.encoderConnected) {
+      console.log("Twin :: Encoder :: reconnect attemptto same address")
+      clearInterval(encoderRetryTimer);
+      connectEncoderRoutine();
     } else {
       console.log("Twin :: Encoder :: no change in address")
     }
@@ -197,12 +191,26 @@ function connectEncoder() {
   studioClient.onDeviceMethod("startStream", onStartStream);
   studioClient.onDeviceMethod("stopStream", onStopStream);
 
+  connectEncoderRoutine();
+}
+function connectEncoderRoutine() {
+  var patch = {
+    encoderStreaming: false,
+    encoderRecording: false,
+  };
+
+  // send the patch for encoder delta initial state
+  globalTwin.properties.reported.update(patch, function (err) {
+    if (err) throw err;
+    console.log("Encoder :: initial state reported - encoder connecting ... ", patch.encoderConnected);
+  });
+
   encoderRetryTimer = setInterval(() => {
     console.log(`Encoder :: Connection attempt`);
     encoderClient = Encoder.connect({
-        address: encoderAddress,
-        password: encoderPassword,
-      })
+      address: encoderAddress,
+      password: encoderPassword,
+    })
       .then(async () => {
         console.log(`Encoder :: connected`);
         clearInterval(encoderRetryTimer);
@@ -1034,7 +1042,7 @@ async function getStats() {
     console.log(error);
     if (error.code == "CONNECTION_ERROR" || error.code == "NOT_CONNECTED") {
       clearInterval(encoderHeartbeat);
-      connectEncoder();
+      connectEncoderRoutine();
     }
   })
 }
