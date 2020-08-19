@@ -109,8 +109,7 @@ function onConnect(err) {
         connectSwitcher();
 
         // ENCODER
-
-        connectEncoder();
+        // connectEncoder();
 
         // PLAYER
         connectPlayer();
@@ -193,6 +192,7 @@ function connectEncoder() {
 
   connectEncoderRoutine();
 }
+
 function connectEncoderRoutine() {
   var patch = {
     encoderStreaming: false,
@@ -226,6 +226,7 @@ function connectEncoderRoutine() {
           if (err) throw err;
           console.log("Encoder :: state reported - encoderConnected ", patch.encoderConnected);
         });
+
         await stream('status')
           .then((encoderStatus) => {
             var patch = {
@@ -335,6 +336,9 @@ switcher.on("disconnected", () => {
 
 switcher.on("connected", () => {
   var patch = {}
+
+  connectEncoder();
+
   if (!switcherReconnect) {
     console.log("SWITCHER :: connected");
 
@@ -345,21 +349,24 @@ switcher.on("connected", () => {
       globalTwin.properties.desired.switcher.startupProgram,
       globalTwin
     );
+
     globalTwin.properties.desired.switcher.currentProgram = null;
+
     setInput(
       switcher,
       "preview",
       globalTwin.properties.desired.switcher.startupPreview,
       globalTwin
     );
+
     globalTwin.properties.desired.switcher.currentPreview = null;
 
     console.log("SWITCHER :: startup inputs set", globalTwin.properties.desired.switcher.startupPreview, globalTwin.properties.desired.switcher.startupProgram)
 
     patch = {
       switcherConnected: true,
-      switcherProgram: 1000,
-      switcherPreview: 1000,
+      switcherProgram: globalTwin.properties.desired.switcher.startupProgram,
+      switcherPreview: globalTwin.properties.desired.switcher.startupPreview,
     };
 
     switcherReconnect = true;
@@ -901,12 +908,7 @@ async function onStopStream(request, response) {
  */
 
 switcher.on("stateChanged", async function (err, state) {
-  // console.log(state);
-  // console.debug(
-  //   "SWITCHER :: Current Program ",
-  //   switcher.listVisibleInputs("program")[0],
-  //   switcher.listVisibleInputs("preview")[0]
-  // );
+
   console.log("SWITCHER :: State received ", state)
   var patch = {};
 
