@@ -22,6 +22,7 @@ const Message = require("azure-iot-device").Message;
 //
 const OBSWebSocket = require("obs-websocket-js");
 const Encoder = new OBSWebSocket();
+var encoderRegistered = false;
 
 // Switcher Device
 //
@@ -145,51 +146,53 @@ function onConnect(err) {
 
 function connectEncoder() {
 
-  // Encoder Twin Registrations
-  console.log("STUDIO :: Registering Twin Update Handlers for Encoder");
+  if (!encoderRegistered) {
+    // Encoder Twin Registrations
+    console.log("STUDIO :: Registering Twin Update Handlers for Encoder");
 
-  globalTwin.on("properties.desired.encoder.startupScene", async function (delta) {
-    console.log("Twin :: Encoder :: startup scene change received - " + delta);
-  });
-  globalTwin.on("properties.desired.encoder.stream.url", async function (delta) {
-    console.log("Twin :: Encoder :: Stream URL changed", delta);
-    setStreamInfo(delta);
-  });
-  globalTwin.on("properties.desired.encoder.stream.key", async function (delta) {
-    console.log("Twin :: Encoder :: Stream Key changed", delta);
-    setStreamInfo(null, delta);
-  });
-  globalTwin.on("properties.desired.encoder.address", async function (delta) {
-    console.log("Twin :: Encoder :: Encoder address changed ", delta, encoderAddress, encoderPassword);
-    if (encoderPreviousAddress != encoderAddress) {
-      encoderPreviousAddress = encoderAddress;
-      encoderAddress =
-        process.env.ENCODER_ADDRESS || globalTwin.properties.desired.encoder.address || Studio.config.encoder.address;
-      encoderPassword =
-        process.env.ENCODER_PASSWORD || globalTwin.properties.desired.encoder.password || Studio.config.encoder.password;
-      if (encoderRetryTimer._idleTimeout < 0) {
-        console.log("Twin :: Encoder :: Connecting to new location")
-        disconnectEncoder()
-        connectEncoder();
+    globalTwin.on("properties.desired.encoder.startupScene", async function (delta) {
+      console.log("Twin :: Encoder :: startup scene change received - " + delta);
+    });
+    globalTwin.on("properties.desired.encoder.stream.url", async function (delta) {
+      console.log("Twin :: Encoder :: Stream URL changed", delta);
+      setStreamInfo(delta);
+    });
+    globalTwin.on("properties.desired.encoder.stream.key", async function (delta) {
+      console.log("Twin :: Encoder :: Stream Key changed", delta);
+      setStreamInfo(null, delta);
+    });
+    globalTwin.on("properties.desired.encoder.address", async function (delta) {
+      console.log("Twin :: Encoder :: Encoder address changed ", delta, encoderAddress, encoderPassword);
+      if (encoderPreviousAddress != encoderAddress) {
+        encoderPreviousAddress = encoderAddress;
+        encoderAddress =
+          process.env.ENCODER_ADDRESS || globalTwin.properties.desired.encoder.address || Studio.config.encoder.address;
+        encoderPassword =
+          process.env.ENCODER_PASSWORD || globalTwin.properties.desired.encoder.password || Studio.config.encoder.password;
+        if (encoderRetryTimer._idleTimeout < 0) {
+          console.log("Twin :: Encoder :: Connecting to new location")
+          disconnectEncoder()
+          connectEncoder();
+        }
+      } else if (!globalTwin.properties.reported.encoderConnected) {
+        console.log("Twin :: Encoder :: reconnect attemptto same address")
+        clearInterval(encoderRetryTimer);
+        connectEncoderRoutine();
+      } else {
+        console.log("Twin :: Encoder :: no change in address")
       }
-    } else if (!globalTwin.properties.reported.encoderConnected) {
-      console.log("Twin :: Encoder :: reconnect attemptto same address")
-      clearInterval(encoderRetryTimer);
-      connectEncoderRoutine();
-    } else {
-      console.log("Twin :: Encoder :: no change in address")
-    }
-  });
+    });
 
-  // Encoder Handlers
-  console.log("STUDIO :: Registering Device Method Handlers for Encoder");
+    // Encoder Handlers
+    console.log("STUDIO :: Registering Device Method Handlers for Encoder");
 
-  studioClient.onDeviceMethod("getScenes", onGetScenes);
-  studioClient.onDeviceMethod("setScene", onSetScene);
-  studioClient.onDeviceMethod("streamStatus", onStreamStatus);
-  studioClient.onDeviceMethod("startStream", onStartStream);
-  studioClient.onDeviceMethod("stopStream", onStopStream);
-
+    studioClient.onDeviceMethod("getScenes", onGetScenes);
+    studioClient.onDeviceMethod("setScene", onSetScene);
+    studioClient.onDeviceMethod("streamStatus", onStreamStatus);
+    studioClient.onDeviceMethod("startStream", onStartStream);
+    studioClient.onDeviceMethod("stopStream", onStopStream);
+    encoderRegistered = true;
+  }
   connectEncoderRoutine();
 }
 
