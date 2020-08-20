@@ -82,6 +82,8 @@ function onConnect(err) {
 
         globalTwin = twin;
 
+        startHttp();
+
         encoderAddress =
           process.env.ENCODER_ADDRESS || globalTwin.properties.desired.encoder.address || Studio.config.encoder.address;
         encoderPassword =
@@ -211,9 +213,9 @@ function connectEncoderRoutine() {
   encoderRetryTimer = setInterval(() => {
     console.log(`Encoder :: Connection attempt`);
     encoderClient = Encoder.connect({
-        address: encoderAddress,
-        password: encoderPassword,
-      })
+      address: encoderAddress,
+      password: encoderPassword,
+    })
       .then(async () => {
         console.log(`Encoder :: connected`);
         clearInterval(encoderRetryTimer);
@@ -1193,9 +1195,29 @@ function slotInfo(inSlot) {
 
 /*
  **
+ ** HTTP SERVER START
+ **
+ **
+ */
+function startHttp() {
+  const http = require('http');
+
+  const requestListener = function (req, res) {
+    res.writeHead(200);
+    res.end(JSON.stringify(globalTwin.properties, 1, ' '));
+  }
+
+  const server = http.createServer(requestListener);
+  server.listen(8080);
+}
+
+/*
+ **
  ** MAIN METHOD START
  **
  **
  */
 // get the app rolling
 main();
+
+
