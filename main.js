@@ -211,9 +211,9 @@ function connectEncoderRoutine() {
   encoderRetryTimer = setInterval(() => {
     console.log(`Encoder :: Connection attempt`);
     encoderClient = Encoder.connect({
-      address: encoderAddress,
-      password: encoderPassword,
-    })
+        address: encoderAddress,
+        password: encoderPassword,
+      })
       .then(async () => {
         console.log(`Encoder :: connected`);
         clearInterval(encoderRetryTimer);
