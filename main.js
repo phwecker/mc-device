@@ -213,9 +213,9 @@ function connectEncoderRoutine() {
   encoderRetryTimer = setInterval(() => {
     console.log(`Encoder :: Connection attempt`);
     encoderClient = Encoder.connect({
-      address: encoderAddress,
-      password: encoderPassword,
-    })
+        address: encoderAddress,
+        password: encoderPassword,
+      })
       .then(async () => {
         console.log(`Encoder :: connected`);
         clearInterval(encoderRetryTimer);
@@ -1199,16 +1199,37 @@ function slotInfo(inSlot) {
  **
  **
  */
+
 function startHttp() {
-  const http = require('http');
+  var express = require('express');
+  var app = express();
+  var cors = require('cors')
 
-  const requestListener = function (req, res) {
-    res.writeHead(200);
-    res.end(JSON.stringify(globalTwin.properties, 1, ' '));
-  }
+  // setting middleware
 
-  const server = http.createServer(requestListener);
-  server.listen(8080);
+  app.use(cors())
+
+  app.get('/studio', (req, res) => {
+    res.send(globalTwin.properties, );
+  });
+
+  app.get('/connect/:component', (req, res) => {
+    const inComponent = req.params.component || "";
+    switch (inComponent) {
+      case 'encoder':
+        break;
+      case 'player':
+        break;
+      case 'switcher':
+        break;
+      default:
+        break;
+    }
+    res.send(inComponent);
+  });
+
+  app.use(express.static(__dirname + '/device-ui/dist')); //Serves resources from public folder
+  var server = app.listen(80);
 }
 
 /*
@@ -1219,5 +1240,3 @@ function startHttp() {
  */
 // get the app rolling
 main();
-
-
