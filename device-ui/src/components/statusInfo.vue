@@ -72,6 +72,34 @@
               </v-list-item-subtitle>
             </v-list-item-content>
           </v-list-item>
+          <v-list-item>
+            <v-list-item-content>
+              <div class="overline mb-4">ACTIONS</div>
+            </v-list-item-content>
+          </v-list-item>
+          <v-list-item>
+            <v-select
+              @change="setInput('preview', setPreview)"
+              class="green lighten-3"
+              v-model="setPreview"
+              :items="inputs"
+              label="Preview"
+            ></v-select>
+          </v-list-item>
+          <v-list-item>
+            <v-select
+              @change="setInput('program', setProgram)"
+              class="red lighten-3"
+              v-model="setProgram"
+              :items="inputs"
+              label="Program"
+            ></v-select>
+          </v-list-item>
+          <v-list-item>
+            <v-btn @click="doTransition('cut')">CUT</v-btn>
+            <v-spacer></v-spacer>
+            <v-btn @click="doTransition('auto')">AUTO</v-btn>
+          </v-list-item>
           <v-card-actions>
             <v-btn text>Attempt to connect</v-btn>
           </v-card-actions>
@@ -103,7 +131,7 @@
         </v-card>
       </v-col>
     </v-row>
-    <pre>{{studioData}}</pre>
+    <!-- <pre>{{studioData}}</pre> -->
   </v-container>
 </template>
 
@@ -113,14 +141,33 @@ import axios from "axios";
 function getStudioData() {
   return axios.get("/studio");
 }
+
+function getInputs() {
+  return axios.get("/switcher/inputs");
+}
+
 export default {
   name: "statusInfo",
   data: () => ({
     studioData: {},
     isLoading: true,
+    inputs: [],
+    setProrgam: 0,
+    setPreview: 0,
   }),
+  methods: {
+    setInput(inChannel, inInput) {
+      return axios.get(`/set/${inChannel}/${inInput}`);
+    },
+    doTransition(inTransition) {
+      return axios.get(`/switch/${inTransition}`);
+    },
+  },
   mounted: async function () {
     var self = this;
+    self.inputs = await getInputs();
+    self.inputs = self.inputs.data;
+
     setInterval(async () => {
       self.studioData = await getStudioData();
       console.log("Data refreshed");

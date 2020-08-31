@@ -29,9 +29,12 @@ var encoderRegistered = false;
 const {
   Atem
 } = require("atem-connection");
+
 const switcher = new Atem({
   externalLog: console.log
 });
+
+var switcherAvailableInputs = {};
 
 // Player Device
 //
@@ -213,9 +216,9 @@ function connectEncoderRoutine() {
   encoderRetryTimer = setInterval(() => {
     console.log(`Encoder :: Connection attempt`);
     encoderClient = Encoder.connect({
-        address: encoderAddress,
-        password: encoderPassword,
-      })
+      address: encoderAddress,
+      password: encoderPassword,
+    })
       .then(async () => {
         console.log(`Encoder :: connected`);
         clearInterval(encoderRetryTimer);
@@ -914,16 +917,22 @@ async function onStopStream(request, response) {
 
 switcher.on("stateChanged", async function (err, state) {
 
-  console.log("SWITCHER :: State received ", state)
   var patch = {};
+
+  if (state.startsWith("inputs")) {
+    console.log("SWITCHER :: INITIAL STATE -- ", state.split('.'))
+    switcherAvailableInputs[state.split('.')[1]] = true;
+  }
 
   switch (state) {
     case "video.ME.0.previewInput": {
       patch.switcherPreview = switcher.listVisibleInputs("preview")[0];
+      console.log("SWITCHER :: State received ", state)
       break;
     }
     case "video.ME.0.programInput": {
       patch.switcherProgram = switcher.listVisibleInputs("program")[0];
+      console.log("SWITCHER :: State received ", state)
       break;
     }
   }
@@ -1210,8 +1219,37 @@ function startHttp() {
   app.use(cors())
 
   app.get('/studio', (req, res) => {
-    res.send(globalTwin.properties, );
+    res.send(globalTwin.properties,);
   });
+
+  app.get('/switcher/inputs', (req, res) => {
+    var inputList = [];
+    for (var i in switcherAvailableInputs) {
+      inputList.push(i)
+    }
+    res.send(inputList);
+  })
+
+  app.get('/set/:channel/:input', (req, res) => {
+    const channel = req.params.channel;
+    const input = req.params.input;
+    setInput(
+      switcher,
+      channel,
+      input, globalTwin);
+    console.log(`SWITCHER :: Setting ${channel} to ${input}`)
+    res.send({ channel, input });
+  })
+
+  app.get('/switch/:transition', (req, res) => {
+    const transition = req.params.transition;
+
+    doTransition(switcher, transition)
+
+    console.log(`SWITCHER :: Transition ${transition}`)
+
+    res.send({ transition });
+  })
 
   app.get('/connect/:component', (req, res) => {
     const inComponent = req.params.component || "";
@@ -1229,7 +1267,7 @@ function startHttp() {
   });
 
   app.use(express.static(__dirname + '/device-ui/dist')); //Serves resources from public folder
-  var server = app.listen(80);
+  var server = app.listen(process.env.PORT || 80);
 }
 
 /*
