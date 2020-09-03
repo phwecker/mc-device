@@ -1221,8 +1221,11 @@ function startHttp() {
 
   app.use(cors())
 
+  app.get('/components', (req, res) => {
+    res.send({ switcher: Studio.config.switcher.enabled, encoder: Studio.config.encoder.enabled, player: Studio.config.player.enabled, });
+  });
   app.get('/studio', (req, res) => {
-    res.send(globalTwin.properties,);
+    res.send(globalTwin.properties);
   });
 
   app.get('/switcher/inputs', (req, res) => {

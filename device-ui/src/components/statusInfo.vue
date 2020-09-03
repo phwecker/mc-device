@@ -2,7 +2,7 @@
   <v-container v-if="!isLoading">
     <v-row>
       <v-col cols="4">
-        <v-card class="mx-auto" max-width="344" outlined>
+        <v-card class="mx-auto" max-width="344" outlined v-if="studioComponents.encoder">
           <v-list-item three-line>
             <v-list-item-content>
               <div class="overline mb-4">CURRENT STATUS</div>
@@ -44,7 +44,7 @@
         </v-card>
       </v-col>
       <v-col cols="4">
-        <v-card class="mx-auto" max-width="344" outlined>
+        <v-card class="mx-auto" max-width="344" outlined v-if="studioComponents.switcher">
           <v-list-item three-line>
             <v-list-item-content>
               <div class="overline mb-4">CURRENT STATUS</div>
@@ -106,7 +106,7 @@
         </v-card>
       </v-col>
       <v-col cols="4">
-        <v-card class="mx-auto" max-width="344" outlined>
+        <v-card class="mx-auto" max-width="344" outlined v-if="studioComponents.player">
           <v-list-item three-line>
             <v-list-item-content>
               <div class="overline mb-4">CURRENT STATUS</div>
@@ -142,6 +142,10 @@ function getStudioData() {
   return axios.get("/studio");
 }
 
+function getStudioComponents() {
+  return axios.get("/components");
+}
+
 function getInputs() {
   return axios.get("/switcher/inputs");
 }
@@ -150,6 +154,7 @@ export default {
   name: "statusInfo",
   data: () => ({
     studioData: {},
+    studioComponents: {},
     isLoading: true,
     inputs: [],
     setProrgam: 0,
@@ -170,6 +175,8 @@ export default {
 
     setInterval(async () => {
       self.studioData = await getStudioData();
+      self.studioComponents = await getStudioComponents();
+      self.studioComponents = self.studioComponents.data;
       console.log("Data refreshed");
       self.isLoading = false;
     }, 1000);
