@@ -88,13 +88,13 @@ function onConnect(err) {
         startHttp();
 
         encoderAddress =
-          process.env.ENCODER_ADDRESS || globalTwin.properties.desired.encoder.address || Studio.config.encoder.address;
+          process.env.ENCODER_ADDRESS || globalTwin.properties.desired.encoder ? globalTwin.properties.desired.encoder.address : "" || Studio.config.encoder.address;
         encoderPassword =
-          process.env.ENCODER_PASSWORD || globalTwin.properties.desired.encoder.password || Studio.config.encoder.password;
+          process.env.ENCODER_PASSWORD || globalTwin.properties.desired.encoder ? globalTwin.properties.desired.encoder.password : "" || Studio.config.encoder.password;
         switcherAddress =
-          process.env.SWITCHER_ADDRESS || globalTwin.properties.desired.switcher.address || Studio.config.switcher.address;
+          process.env.SWITCHER_ADDRESS || globalTwin.properties.desired.switcher ? globalTwin.properties.desired.switcher.address : "" || Studio.config.switcher.address;
         playerAddress =
-          process.env.PLAYER_ADDRESS || globalTwin.properties.desired.player.address || Studio.config.player.address;
+          process.env.PLAYER_ADDRESS || globalTwin.properties.desired.player ? globalTwin.properties.desired.player.address : "" || Studio.config.player.address;
 
         console.log("STUDIO :: Desired Properties - ", twin.properties.desired);
 
@@ -112,13 +112,16 @@ function onConnect(err) {
 
         // SWITCHER
 
-        connectSwitcher();
-
-        // ENCODER
-        // connectEncoder();
+        if (Studio.config.switcher.enabled)
+          connectSwitcher();
+        else {
+          // ENCODER
+          connectEncoder();
+        }
 
         // PLAYER
-        connectPlayer();
+        if (Studio.config.player.enabled)
+          connectPlayer();
 
         //
         //
@@ -344,8 +347,8 @@ switcher.on("disconnected", () => {
 
 switcher.on("connected", () => {
   var patch = {}
-
-  connectEncoder();
+  if (Studio.config.encoder.enabled)
+    connectEncoder();
 
   if (!switcherReconnect) {
     console.log("SWITCHER :: connected");

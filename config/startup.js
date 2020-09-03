@@ -1,5 +1,6 @@
 module.exports.config = {
   encoder: {
+    enabled: true,
     startupScene: "00preshow",
     address: "192.168.1.102:4444",
     password: "",
@@ -9,11 +10,13 @@ module.exports.config = {
     },
   },
   switcher: {
+    enabled: false,
     address: "192.168.1.200",
     startupProgram: 1000,
     startupPreview: 1000,
   },
   player: {
+    enabled: true,
     address: "192.168.1.116",
     startupTrack: 1,
   },
