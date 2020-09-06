@@ -622,10 +622,10 @@ async function onSlotInfo(request, response) {
 async function onPlayClip(request, response) {
   console.debug(request);
   if (request.payload && request.payload.clip) {
-    play(request.payload.clip, request.payload.loop || false);
+    await play(request.payload.clip, request.payload.loop || false);
     response.send(200, {
       player: {
-        status: "stop",
+        status: "play",
         playing: Player.clips[request.payload.clip - 1]
       }
     }, function (err) {
@@ -681,9 +681,7 @@ async function onStop(request, response) {
           );
         }
       });
-
   })
-
 }
 
 async function onListClips(request, response) {
@@ -764,12 +762,6 @@ async function onStreamStatus(request, response) {
         "Response to method '" + request.methodName + "' sent successfully."
       );
     }
-  });
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
   });
 }
 
@@ -1273,7 +1265,7 @@ function startHttp() {
   });
 
   app.use(express.static(__dirname + '/device-ui/dist')); //Serves resources from public folder
-  var server = app.listen(process.env.PORT || 80);
+  var server = app.listen(process.env.PORT || 81);
 }
 
 /*
