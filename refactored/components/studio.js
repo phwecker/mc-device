@@ -31,15 +31,18 @@ function Studio(httpPort) {
 
     // Studio Properties
     // 
-    this.encoder = StudioConfig.encoder.enabled ? new Encoder() : null;
-    this.switcher = StudioConfig.switcher.enabled ? new Switcher() : null;
-    this.player = StudioConfig.player.enabled ? new Player() : null;
+    this.encoder = StudioConfig.encoder.enabled ? new Encoder() : { connected: false };
+    this.switcher = StudioConfig.switcher.enabled ? new Switcher() : { connected: false };
+    this.player = StudioConfig.player.enabled ? new Player() : { connected: false };
     this.online = false;
     this.httpEnabled = true;
     this.studioTwin = {};
     this.encoderPreviousAddress = "";
     this.properties = {
-        connected: false
+        connected: false,
+        switcher: { connected: false },
+        encoder: { connected: false },
+        player: { connected: false }
     }
     self = this;
 
@@ -74,6 +77,24 @@ function Studio(httpPort) {
                 res.send({})
             }
         });
+
+        app.get('/studio/connect/:component', async (req, res) => {
+            const component = req.params.component
+            switch (component) {
+                case 'switcher':
+                    self.switcher.init(StudioConfig.switcher, self.studioTwin.properties.desired.switcher || {}, reportUpdate);
+                    break;
+                case 'player':
+                    self.player.init(StudioConfig.player, reportUpdate);
+                    break;
+                case 'encoder':
+                    self.encoder.init(StudioConfig.encoder, self.studioTwin.properties.desired.encoder, reportUpdate);
+                    break;
+                default:
+                    res.json({ code: 503, text: "unknown command" })
+                    break;
+            }
+        })
 
         app.get('/player/:command/:inNo?/:loop?', async (req, res) => {
             const command = req.params.command
@@ -169,9 +190,12 @@ function Studio(httpPort) {
                 } else {
                     console.log("STUDIO :: Twin synchronized");
                     self.studioTwin = twin;
+                    reportUpdate(self.properties);
+
                     // 
                     // PLAYER Registration
                     if (self.player) {
+
                         self.player.init(StudioConfig.player, reportUpdate);
                         console.log("STUDIO :: Registering Device Method Handlers for Player");
                         // playClip  Method
@@ -270,24 +294,17 @@ function Studio(httpPort) {
                         });
                         // slotInfo Method
                         self.studioClient.onDeviceMethod("slotInfo", async function (request, response) {
-                            var slotInfos = {
-                                slot: []
-                            }
-                            await hyperdeckClient.makeRequest("slot info: slot id: 1").then(async function (slotInfo) {
-                                slotInfos.slot[0] = slotInfo.params;
-                                await hyperdeckClient.makeRequest("slot info: slot id: 2").then(slotInfo => {
-                                    slotInfos.slot[1] = slotInfo.params;
-                                    response.send(200, slotInfos, function (err) {
-                                        if (err) {
-                                            console.error(
-                                                "An error ocurred when sending a method response:\n" + err.toString()
-                                            );
-                                        } else {
-                                            console.log(
-                                                "Response to method '" + request.methodName + "' sent successfully."
-                                            );
-                                        }
-                                    })
+                            await self.player.slotInfo().then(slotInfos => {
+                                response.send(200, slotInfos, function (err) {
+                                    if (err) {
+                                        console.error(
+                                            "An error ocurred when sending a method response:\n" + err.toString()
+                                        );
+                                    } else {
+                                        console.log(
+                                            "Response to method '" + request.methodName + "' sent successfully."
+                                        );
+                                    }
                                 })
                             })
                         });
@@ -605,21 +622,6 @@ function Studio(httpPort) {
                             self.switcher.init(StudioConfig.switcher, self.studioTwin.properties.desired.switcher || {}, reportUpdate);
                             console.log("SWITCHER :: Switcher address changed ", delta, StudioConfig.switcher.address);
                         })
-                        // self.studioTwin.on("properties.desired.switcher.currentProgram", async function (delta) {
-                        //     await setInput(
-                        //         self.switcher,
-                        //         "program",
-                        //         delta);
-                        //     console.log("SWITCHER :: currentProgram changed", delta);
-                        // });
-                        // self.studioTwin.on("properties.desired.switcher.currentPreview", async function (delta) {
-                        //     await setInput(
-                        //         self.switcher,
-                        //         "preview",
-                        //         delta
-                        //     );
-                        //     console.log("SWITCHER :: currentPreview changed", delta);
-                        // });
                     }
                 }
             })

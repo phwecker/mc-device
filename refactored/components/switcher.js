@@ -58,20 +58,20 @@ function Switcher() {
 
     });
 
-    switcher.on("connected", () => {
+    switcher.on("connected", async () => {
       var patch = {}
 
       if (!switcherReconnect) {
         console.log("SWITCHER :: connected");
 
         // set switcher to bars as initial input
-        setInput(
+        await setInput(
           switcher,
           "program",
           self.startupConfig.startupProgram,
         );
 
-        setInput(
+        await setInput(
           switcher,
           "preview",
           self.startupConfig.startupPreview
@@ -170,20 +170,20 @@ function Switcher() {
 
   function doTransition(inSwitcher, inType) {
     console.log("SWITCHER :: transition  " + inType);
-    let oldProgram = self.properties.program;
     return new Promise((res, rej) => {
+
       switch (inType) {
         case "cut":
           inSwitcher
             .cut()
             .then((result) => {
-              console.log("SWITCHER :: CUT Transition executed");
-              self.properties.program = self.properties.preview;
-              self.properties.preview = oldProgram;
+              self.properties.program = switcher.listVisibleInputs("program")[0];
+              self.properties.preview = switcher.listVisibleInputs("preview")[0];
               let patch = {
                 switcher: self.properties,
               };
               self.reportUpdate(patch);
+              console.log("SWITCHER :: CUT Transition executed", self.properties);
               res(result)
             })
             .catch((error) => {
@@ -195,13 +195,13 @@ function Switcher() {
           inSwitcher
             .autoTransition()
             .then((result) => {
-              console.log("SWITCHER :: AUTO Transition executed");
-              self.properties.program = self.properties.preview;
-              self.properties.preview = oldProgram;
+              self.properties.program = switcher.listVisibleInputs("program")[0];
+              self.properties.preview = switcher.listVisibleInputs("preview")[0];
               let patch = {
                 switcher: self.properties,
               };
               self.reportUpdate(patch);
+              console.log("SWITCHER :: AUTO Transition executed", self.properties);
               res(result)
             })
             .catch((error) => {

@@ -15,7 +15,7 @@
               :color="studioData.data.reported.encoder.connected?'green':'red'"
             ></v-list-item-avatar>
           </v-list-item>
-          <v-list-item>
+          <v-list-item v-if="studioData.data.reported.encoder.connected">
             <v-list-item-content>
               <div class="overline mb-4">SETTINGS</div>
               <v-list-item-subtitle>
@@ -25,7 +25,7 @@
               </v-list-item-subtitle>
             </v-list-item-content>
           </v-list-item>
-          <v-list-item>
+          <v-list-item v-if="studioData.data.reported.encoder.connected">
             <v-list-item-content>
               <div class="overline mb-4">ENCODER OUTPUT</div>
               <v-list-item-subtitle>
@@ -39,7 +39,11 @@
             </v-list-item-content>
           </v-list-item>
           <v-card-actions>
-            <v-btn text>Attempt to connect</v-btn>
+            <v-btn
+              text
+              @click="connect('encoder')"
+              v-if="!studioData.data.reported.encoder.connected"
+            >Attempt to connect</v-btn>
           </v-card-actions>
         </v-card>
       </v-col>
@@ -57,7 +61,7 @@
               :color="studioData.data.reported.switcher.connected?'green':'red'"
             ></v-list-item-avatar>
           </v-list-item>
-          <v-list-item>
+          <v-list-item v-if="studioComponents.switcher.connected">
             <v-list-item-content>
               <div class="overline mb-4">SETTINGS</div>
               <v-list-item-subtitle>
@@ -72,12 +76,12 @@
               </v-list-item-subtitle>
             </v-list-item-content>
           </v-list-item>
-          <v-list-item>
+          <v-list-item v-if="studioData.data.reported.switcher.connected">
             <v-list-item-content>
               <div class="overline mb-4">ACTIONS</div>
             </v-list-item-content>
           </v-list-item>
-          <v-list-item>
+          <v-list-item v-if="studioData.data.reported.switcher.connected">
             <v-select
               @change="setInput('preview', setPreview)"
               class="green lighten-3"
@@ -86,7 +90,7 @@
               label="Preview"
             ></v-select>
           </v-list-item>
-          <v-list-item>
+          <v-list-item v-if="studioData.data.reported.switcher.connected">
             <v-select
               @change="setInput('program', setProgram)"
               class="red lighten-3"
@@ -95,13 +99,17 @@
               label="Program"
             ></v-select>
           </v-list-item>
-          <v-list-item>
+          <v-list-item v-if="studioData.data.reported.switcher.connected">
             <v-btn @click="doTransition('cut')">CUT</v-btn>
             <v-spacer></v-spacer>
             <v-btn @click="doTransition('auto')">AUTO</v-btn>
           </v-list-item>
           <v-card-actions>
-            <v-btn text>Attempt to connect</v-btn>
+            <v-btn
+              text
+              @click="connect('switcher')"
+              v-if="!studioData.data.reported.switcher.connected"
+            >Attempt to connect</v-btn>
           </v-card-actions>
         </v-card>
       </v-col>
@@ -119,14 +127,18 @@
               :color="studioData.data.reported.player.connected?'green':'red'"
             ></v-list-item-avatar>
           </v-list-item>
-          <v-list-item>
+          <v-list-item v-if="studioData.data.reported.player.connected">
             <v-list-item-content>
               <div class="overline mb-4">SETTINGS</div>
               <v-list-item-subtitle>Startup Clip : {{studioData.data.desired.player.startupTrack}}</v-list-item-subtitle>
             </v-list-item-content>
           </v-list-item>
           <v-card-actions>
-            <v-btn text>Attempt to connect</v-btn>
+            <v-btn
+              text
+              @click="connect('player')"
+              v-if="!studioData.data.reported.player.connected"
+            >Attempt to connect</v-btn>
           </v-card-actions>
         </v-card>
       </v-col>
@@ -166,6 +178,9 @@ export default {
     },
     doTransition(inTransition) {
       return axios.get(`/switcher/${inTransition}`);
+    },
+    connect(inComponent) {
+      return axios.get(`/studio/connect/${inComponent}`);
     },
   },
   mounted: async function () {

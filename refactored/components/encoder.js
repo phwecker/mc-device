@@ -66,6 +66,7 @@ function Encoder() {
 
                 self.properties.connected = true;
                 self.properties.streaming = encoderStatus.streaming;
+                self.properties.recording = encoderStatus.recording;
                 let patch = {
                   encoder: self.properties,
                 };
