@@ -27,6 +27,6 @@
     "npmlockrefresh": "npm i --package-lock-only",
     "lint": "jshint --show-non-errors .",
     "ci": "npm run lint",
-    "start": "node start.js"
+    "start": "node refactored/start.js"
   }
 }
